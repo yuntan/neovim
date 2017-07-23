@@ -9,6 +9,11 @@
 
 #include <msgpack.h>
 
+#ifdef WIN32
+# include <wchar.h>
+# include <winnls.h>
+#endif
+
 #include "nvim/ascii.h"
 #include "nvim/vim.h"
 #include "nvim/main.h"
@@ -215,12 +220,54 @@ void early_init(void)
   set_lang_var();               // set v:lang and v:ctype
 }
 
+#ifdef WIN32
+void wchar_to_char(int argc, wchar_t **argv_w, char **argv)
+{
+  char *loc = setlocale(LC_CTYPE, NULL);
+
+  // setlocale(LC_CTYPE, "jpn"); // utf16 -> cp932 変換になってしまう
+  // setlocale(LC_CTYPE, "utf-8"); // 失敗する
+  setlocale(LC_CTYPE, "ja_JP.UTF-8"); // やっぱり utf16 -> cp932 変換になってしまう
+
+  for(size_t i = 0; i < (size_t)argc; i++) {
+    // size_t len = 2 * wcslen(argv_w[i]) + 1; // null char
+    size_t len = 100;
+    char *buf = (char *)malloc(len);
+    size_t ret;
+    // wcstombs_s(&ret, buf, len, argv_w[i], len); // TODO check C11
+    ret = wcstombs(buf, argv_w[i], len);
+    argv[i] = buf;
+  }
+
+  setlocale(LC_CTYPE, loc);
+}
+
+void wchar_to_char2(int argc, wchar_t **argv_w, char **argv)
+{
+  for(size_t i = 0; i < (size_t)argc; i++) {
+    size_t dest_size = WideCharToMultiByte(CP_UTF8, 0, argv_w[i], -1, NULL, 0, NULL, NULL);
+    char *buf = (char *)malloc(dest_size);
+    // utf16 (widechar) -> utf8 (multibyte) convertion
+    WideCharToMultiByte(CP_UTF8, 0, argv_w[i], -1, buf, dest_size, NULL, NULL);
+    argv[i] = buf;
+  }
+}
+#endif
+
 #ifdef MAKE_LIB
 int nvim_main(int argc, char **argv)
+#elif defined WIN32
+int wmain(int argc, wchar_t **argv_w)
 #else
 int main(int argc, char **argv)
 #endif
 {
+#ifdef WIN32
+  char *argv[argc];
+  // wchar_to_char(argc, argv_w, argv);
+  wchar_to_char2(argc, argv_w, argv);
+#endif
+
   argv0 = argv[0];
 
   char_u *fname = NULL;   // file name from command line
@@ -1137,6 +1184,7 @@ scripterror:
       /* Add the file to the global argument list. */
       ga_grow(&global_alist.al_ga, 1);
       p = vim_strsave((char_u *)argv[0]);
+      ILOG(p);
 
       if (parmp->diff_mode && os_isdir(p) && GARGCOUNT > 0
           && !os_isdir(alist_name(&GARGLIST[0]))) {
@@ -1150,6 +1198,7 @@ scripterror:
 #ifdef USE_FNAME_CASE
       // Make the case of the file name match the actual file.
       path_fix_case(p);
+      ILOG(p);
 #endif
 
       alist_add(&global_alist, p,

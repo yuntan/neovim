@@ -612,3 +612,7 @@ add_custom_target(
 )
 
 add_subdirectory(po)
+
+if(WIN32)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -municode")
+endif()
